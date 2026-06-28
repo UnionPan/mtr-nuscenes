@@ -1,0 +1,5 @@
+# Headline model: contrastive + masked-temporal + motion, frozen DINOv2, T=6, 6 cams.
+_base_: ../base.yaml
+name: full
+output_dir: runs/full
+objectives: [contrastive, mlm, motion]

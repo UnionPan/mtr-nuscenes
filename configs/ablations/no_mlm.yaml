@@ -1,0 +1,5 @@
+# Objective ablation: contrastive + motion (drops masked temporal modeling).
+_base_: ../base.yaml
+name: no_mlm
+output_dir: runs/no_mlm
+objectives: [contrastive, motion]

@@ -1,0 +1,7 @@
+# Unimodal baseline: ego-motion prediction only (no text, no contrastive, no MLM).
+_base_: ../base.yaml
+name: motion_only
+output_dir: runs/motion_only
+objectives: [motion]
+model:
+  use_text: false

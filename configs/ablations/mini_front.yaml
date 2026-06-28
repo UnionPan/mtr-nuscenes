@@ -1,0 +1,19 @@
+# Front-camera control on Mini — same single-camera setup as scale_trainval but
+# on 10 scenes, so the scale_trainval comparison isolates scene count (10 -> 850)
+# from camera count. Reuses the existing 6-camera mini cache (it contains
+# CAM_FRONT images), so no extra caching is needed.
+_base_: ../base.yaml
+name: mini_front
+output_dir: runs/mini_front
+
+data:
+  index_path: data/index/mini_T6_s2_front.json
+  cameras: 1
+  feature_cache: data/cache/dinov2_vitb14
+  train_augment:
+    frame_dropout: 0.1
+    camera_dropout: 0.0
+    feature_noise: 0.05
+
+model:
+  max_views: 1

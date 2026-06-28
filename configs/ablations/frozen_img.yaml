@@ -1,0 +1,16 @@
+# Frozen-vs-adapted ablation (control): image pipeline, backbone FROZEN.
+# Shorter budget than feature-mode runs because image encoding dominates cost.
+_base_: ../base.yaml
+name: frozen_img
+output_dir: runs/frozen_img
+data:
+  input_mode: image
+  num_workers: 4
+model:
+  input_mode: image
+  freeze_encoder: true
+train:
+  epochs: 15
+  batch_size: 12
+  eval_every_epochs: 15
+  ckpt_every_epochs: 15

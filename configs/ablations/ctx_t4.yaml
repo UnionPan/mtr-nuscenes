@@ -1,0 +1,7 @@
+# Context-length ablation: T=4 frames.
+_base_: ../base.yaml
+name: ctx_t4
+output_dir: runs/ctx_t4
+data:
+  index_path: data/index/mini_T4_s2.json
+  clip_len: 4

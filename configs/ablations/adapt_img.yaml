@@ -1,0 +1,19 @@
+# Frozen-vs-adapted ablation (treatment): image pipeline, backbone UNFROZEN
+# with gradient checkpointing and a reduced backbone LR.
+_base_: ../base.yaml
+name: adapt_img
+output_dir: runs/adapt_img
+data:
+  input_mode: image
+  num_workers: 4
+model:
+  input_mode: image
+  freeze_encoder: false
+  grad_checkpointing: true
+train:
+  epochs: 15
+  batch_size: 6
+  grad_accum: 2
+  backbone_lr_mult: 0.05
+  eval_every_epochs: 15
+  ckpt_every_epochs: 15

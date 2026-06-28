@@ -1,0 +1,74 @@
+# Base configuration for MTR pretraining on nuScenes Mini.
+# Ablation configs inherit via `_base_: base.yaml` and override individual keys.
+name: base
+
+seed: 42
+device: cuda
+output_dir: runs/base
+
+data:
+  dataroot: data/nuscenes
+  version: v1.0-mini
+  index_path: data/index/mini_T6_s2.json
+  clip_len: 6            # T frames per clip
+  stride: 2
+  future_horizon: 6      # H future waypoints (motion target)
+  image_size: 224
+  cameras: 6             # 6 (surround) or 1 (front-only)
+  input_mode: feature    # "feature" (cached embeddings) or "image"
+  feature_cache: data/cache/dinov2_vitb14   # used when input_mode == feature
+  num_workers: 6
+  train_augment:         # mild train-only regularization (motion is regularized
+    frame_dropout: 0.1   # primarily by the shrinkage penalty; this mainly aids
+    camera_dropout: 0.1  # robustness without over-degrading contrastive signal)
+    feature_noise: 0.05  # gaussian std as a fraction of feature std
+
+model:
+  frame_encoder: dinov2_vitb14
+  image_size: 224
+  freeze_encoder: true
+  grad_checkpointing: false
+  dim: 512
+  temporal_depth: 4
+  temporal_heads: 8
+  max_frames: 16
+  max_views: 6
+  text_encoder: distilbert-base-uncased
+  freeze_text: true
+  use_text: true
+  proj_dim: 256
+  motion_horizon: 6
+  mlm_ratio: 0.5
+  input_mode: feature
+  frame_feat_dim: 768    # DINOv2 ViT-B embedding dim (feature mode)
+
+objectives: [contrastive, mlm, motion]
+loss_weights:
+  contrastive: 1.0
+  mlm: 1.0
+  motion: 0.5            # balanced against contrastive/mlm (metres-of-error loss)
+  motion_reg: 0.3        # shrinkage of motion residual toward the mean-trajectory prior
+
+train:
+  epochs: 80
+  batch_size: 16
+  grad_accum: 1
+  lr: 3.0e-4
+  weight_decay: 0.05
+  warmup_frac: 0.1
+  precision: fp16        # fp16 autocast (RTX 8000 = Turing); bf16 also supported
+  backbone_lr_mult: 0.1  # reduced LR for the visual backbone when unfrozen
+  grad_clip: 1.0
+  distributed: ddp       # ddp | fsdp (multi-GPU via torchrun)
+  log_every: 40
+  ckpt_every_epochs: 40
+  eval_every_epochs: 10
+
+eval:
+  batch_size: 16
+  recall_ks: [1, 5, 10]
+  robustness:
+    corruptions: [gaussian_noise, blur, brightness]
+    severities: [0.5, 1.0]
+    frame_dropout: [0.25, 0.5]
+    camera_dropout: [0.25, 0.5]

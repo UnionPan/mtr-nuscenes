@@ -1,0 +1,30 @@
+# Scale-up: full nuScenes v1.0-trainval (official 700/150 split), FRONT camera only.
+# ~85x more scenes than Mini. Front-camera is the scope trade-off for a
+# login-free (~5.5 GB) download; the multi-camera path is validated on Mini.
+_base_: ../base.yaml
+name: scale_trainval
+output_dir: runs/scale_trainval
+
+data:
+  dataroot: data/nuscenes_full
+  version: v1.0-trainval
+  index_path: data/index/trainval_front_T6_s2.json
+  cameras: 1
+  feature_cache: data/cache/dinov2_vitb14_trainval_front
+  num_workers: 8
+  train_augment:
+    frame_dropout: 0.1
+    camera_dropout: 0.0   # only one camera (front) — dropping it is degenerate
+    feature_noise: 0.05
+
+model:
+  max_views: 1
+  frame_feat_dim: 768
+
+train:
+  epochs: 30
+  batch_size: 64        # larger batch -> more InfoNCE negatives (data is plentiful now)
+  lr: 5.0e-4
+  eval_every_epochs: 5
+  ckpt_every_epochs: 10
+  log_every: 50

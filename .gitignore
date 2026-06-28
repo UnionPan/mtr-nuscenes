@@ -1,0 +1,21 @@
+# Data, caches, and run artifacts (large / regenerable)
+data/nuscenes/
+data/nuscenes_full/
+data/v1.0-mini.tgz
+data/cache/
+runs/
+runs_*.log
+*.pt
+
+# Keep the lightweight clip indices for reproducibility
+!data/index/
+data/index/*.tmp
+# ...but not the large (regenerable) trainval index
+data/index/trainval_front_T6_s2.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/

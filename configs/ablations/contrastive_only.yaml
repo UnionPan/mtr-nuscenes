@@ -1,0 +1,5 @@
+# Objective ablation: video-text InfoNCE only.
+_base_: ../base.yaml
+name: contrastive_only
+output_dir: runs/contrastive_only
+objectives: [contrastive]
