@@ -188,19 +188,41 @@ def fig_retrieval(clips, out, dataroot, n=4):
     print("[saved]", p)
 
 
+def _scene_front_sequences(clips):
+    """Reconstruct each scene's ordered CAM_FRONT keyframe paths from the
+    (overlapping, scene-tiling) clips, so future frames can be looked up."""
+    from collections import defaultdict
+    sf = defaultdict(dict)
+    for c in clips:
+        v = c["cameras"].index("CAM_FRONT") if "CAM_FRONT" in c["cameras"] else 0
+        for t, ts in enumerate(c["timestamps"]):
+            sf[c["scene"]][round(ts, 3)] = c["image_paths"][t][v]
+    return {s: sorted(d.items()) for s, d in sf.items()}
+
+
 def fig_animation(clips, mp, sel, dataroot):
     """A short GIF telling the story: for a turn / straight / stop clip, play the
-    front-camera observed frames, then reveal the forecast (model vs CV) in BEV."""
+    front-camera observed frames, reveal the forecast (model vs CV) in BEV, then
+    play the REAL future frames so the prediction visibly comes true."""
     from matplotlib.animation import FuncAnimation, PillowWriter
     # one turn, one straight, one stop
     pick = [sel[0]]
     for i in sel[1:]:
-        st = clips[i]["caption"]
-        if "straight" in st and len(pick) < 2: pick.append(i)
+        if "straight" in clips[i]["caption"] and len(pick) < 2: pick.append(i)
     for i in sel[1:]:
-        t = np.asarray(clips[i]["motion_target"])
-        if np.linalg.norm(t[-1]) < 2.0: pick.append(i); break
+        if np.linalg.norm(np.asarray(clips[i]["motion_target"])[-1]) < 2.0: pick.append(i); break
     pick = pick[:3]
+
+    seqs = _scene_front_sequences(clips)
+    fronts, futures = {}, {}
+    for ci in pick:
+        c = clips[ci]; v = c["cameras"].index("CAM_FRONT") if "CAM_FRONT" in c["cameras"] else 0
+        fronts[ci] = v
+        seq = seqs[c["scene"]]; times = [t for t, _ in seq]
+        ats = round(c["timestamps"][-1], 3)
+        ai = times.index(ats) if ats in times else len(seq) - 1
+        H = len(c["motion_target"])
+        futures[ci] = [p for _, p in seq[ai + 1:ai + 1 + H]]   # real future front frames
 
     plan = []                                   # (clip_idx, kind, k)
     for ci in pick:
@@ -210,16 +232,19 @@ def fig_animation(clips, mp, sel, dataroot):
         plan += [(ci, "predict", H)] * 3        # hold
 
     fig, (axi, axb) = plt.subplots(1, 2, figsize=(11, 4.4))
-    fronts = {ci: clips[ci]["cameras"].index("CAM_FRONT") if "CAM_FRONT" in clips[ci]["cameras"] else 0
-              for ci in pick}
 
     def draw(idx):
         ci, kind, k = plan[idx]; clip = clips[ci]
         axi.clear(); axb.clear()
         v = fronts[ci]
-        ft = k if kind == "observe" else len(clip["image_paths"]) - 1
-        axi.imshow(load_img(dataroot, clip["image_paths"][ft][v], size=420)); axi.axis("off")
-        phase = f"observed frame {k+1}/{len(clip['image_paths'])}" if kind == "observe" else "FORECAST"
+        if kind == "observe":
+            path = clip["image_paths"][k][v]
+            phase = f"observed frame {k+1}/{len(clip['image_paths'])}"
+        else:
+            fut = futures[ci]
+            path = fut[k - 1] if k - 1 < len(fut) else clip["image_paths"][-1][v]
+            phase = f"FORECAST — actual future frame +{k} ({k*0.5:.1f}s)"
+        axi.imshow(load_img(dataroot, path, size=420)); axi.axis("off")
         axi.set_title(f"front camera — {phase}", fontsize=10)
 
         obs = anchor_frame_obs(clip["ego_poses"])
