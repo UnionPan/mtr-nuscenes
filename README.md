@@ -10,7 +10,72 @@ head**, trained jointly with three objectives:
 
 1. **InfoNCE video↔text alignment** (CLIP-style, symmetric).
 2. **Masked temporal modeling** (reconstruct masked frame embeddings, data2vec-style).
-3. **Ego-motion prediction** (future waypoints, anchored to the dataset-mean trajectory).
+3. **Ego-motion prediction** (future waypoints, anchored to a trajectory prior —
+   dataset-mean, or a per-clip constant-velocity / constant-turn-rate prior).
+
+## Visual demos
+
+> These are illustrations of what the model does — the model is small and the
+> metrics are modest (see the honest summary below), not a state-of-the-art claim.
+
+**Ego-motion forecasting.** Front-camera input (left) and the bird's-eye forecast
+(right): the model (blue) curves with the road, while a constant-velocity baseline
+(dashed) drives straight off it.
+
+![forecast animation](reports/figures/demo_forecast.gif)
+
+**Forecasting across scene types** — turns, straights, stops, with the model,
+ground truth, and the CV / CTRV physics priors overlaid:
+
+![bev](reports/figures/demo_forecast_bev.png)
+
+**Surround-camera input** — the 6 synchronized views the model sees, the scene
+caption, and the forecast:
+
+![surround](reports/figures/demo_surround.png)
+
+**Video → text retrieval** — front camera + the captions the model ranks highest.
+It recovers motion state and even the city; row 4 is a genuine failure (not
+cherry-picked — selection is seeded):
+
+![retrieval](reports/figures/demo_retrieval.png)
+
+Regenerate any time with:
+```bash
+python scripts/make_demos.py --config configs/ablations/scale_6cam_ctrv.yaml \
+  --ckpt runs/scale_6cam_ctrv/best.pt
+```
+
+## Key results & findings (full nuScenes, measured)
+
+This is a reproducible **empirical study**, not a leaderboard entry — the motion
+and retrieval numbers are *not* comparable to task-specific SOTA (which uses HD
+maps and multimodal forecasting), and the report says so plainly. What the study
+does establish, with measured numbers:
+
+- **Scale fixes Mini's limits.** Every metric crosses its chance / majority floor
+  on full trainval, confirming Mini's weaknesses were data-driven, not architectural.
+- **Backbone adaptation is the biggest lever — and it flips sign with scale.**
+  Unfreezing DINOv2 *overfits* on Mini's 143 clips but is the single largest gain
+  on 12.5 k clips (motion −30 %, retrieval median rank roughly halved).
+- **Cameras vs. front split cleanly.** 6-camera surround helps the visual metrics
+  (best retrieval median rank 49/2682, pedestrian probe 0.79); ego-motion stays
+  front-camera-dominated.
+- **Ego-motion is dominated by a kinematic prior.** Anchoring the motion head on
+  constant-velocity cuts ADE 3.22 → 1.31 m; a constant-turn-rate prior reaches
+  1.22 m (and **3.02 → 1.82 m on *turning* clips**). The learnable visual residual
+  does not beat physics at frozen-feature quality — and stronger regularization
+  only *prevents* it from overfitting, it cannot *manufacture* signal. Beating the
+  prior would need perception (patch tokens / maps) — the honest next step.
+
+| metric (best config) | result | reference |
+|---|---|---|
+| retrieval median rank | **49 / 2682** (top 1.8 %) | random ≈ 1341 |
+| video→text R@10 | **0.186** | random 0.004 |
+| motion ADE / FDE | **1.22 / 2.55 m** | prior 5.32 / 9.21; CV ceiling 0.86 / 2.05 |
+| pedestrian linear probe | **0.79** | majority 0.62 |
+
+Full numbers, all ablations, and discussion: **[`reports/results.md`](reports/results.md)**.
 
 ## Why these design choices
 

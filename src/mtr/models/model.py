@@ -15,7 +15,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .frame_encoder import FrameEncoder
-from .heads import MaskedFramePredictor, MotionHead, ProjectionHead
+from .heads import KinematicMotionHead, MaskedFramePredictor, MotionHead, ProjectionHead
 from .temporal import TemporalTransformer
 from .text_encoder import TextEncoder
 
@@ -40,12 +40,16 @@ class MTRModel(nn.Module):
         input_mode: str = "image",          # "image" | "feature"
         frame_feat_dim: Optional[int] = None,
         use_text: bool = True,
+        motion_head: str = "mlp",           # "mlp" | "kinematic"
+        kin_dim: int = 3,
     ):
         super().__init__()
         self.input_mode = input_mode
         self.mlm_ratio = mlm_ratio
         self.max_views = max_views
         self.use_text = use_text
+        self.motion_head_type = motion_head
+        self.kin_dim = kin_dim
 
         if input_mode == "image":
             self.frame_encoder = FrameEncoder(
@@ -66,7 +70,15 @@ class MTRModel(nn.Module):
             max_frames=max_frames, grad_checkpointing=grad_checkpointing)
 
         self.video_proj = ProjectionHead(dim, proj_dim)
-        self.motion_head = MotionHead(dim, horizon=motion_horizon)
+        if motion_head == "kinematic":
+            self.motion_head = KinematicMotionHead(dim, horizon=motion_horizon, kin_dim=kin_dim)
+            # Aux head (#4): predict observed kinematics from the visual clip
+            # vector alone, forcing the representation to retain ego-motion.
+            self.kin_aux_head = nn.Sequential(
+                nn.Linear(dim, dim // 2), nn.GELU(), nn.Linear(dim // 2, kin_dim))
+        else:
+            self.motion_head = MotionHead(dim, horizon=motion_horizon)
+            self.kin_aux_head = None
         self.masked_predictor = MaskedFramePredictor(dim)
         self.logit_scale = nn.Parameter(torch.tensor(math.log(1 / 0.07)))
 
@@ -105,6 +117,22 @@ class MTRModel(nn.Module):
     def encode_text(self, captions: List[str]) -> torch.Tensor:
         return self.text_proj(self.text_encoder(captions))
 
+    def predict_motion(self, cls: torch.Tensor, tokens: torch.Tensor,
+                       batch: Dict) -> torch.Tensor:
+        """Dispatch to the configured motion head. The MLP head reads the pooled
+        clip vector; the kinematic head reads the temporal sequence + the causal
+        CV anchor + observed kinematics (zero-filled if a caller omits them)."""
+        if self.motion_head_type != "kinematic":
+            return self.motion_head(cls)
+        B = cls.shape[0]
+        cv = batch.get("cv_anchor")
+        if cv is None:
+            cv = torch.zeros(B, self.motion_head.horizon, 2, device=cls.device, dtype=cls.dtype)
+        kin = batch.get("kin")
+        if kin is None:
+            kin = torch.zeros(B, self.kin_dim, device=cls.device, dtype=cls.dtype)
+        return self.motion_head(tokens, batch.get("frame_mask"), kin.to(cls.dtype), cv.to(cls.dtype))
+
     # ---- full forward for training -------------------------------------
     def forward(self, batch: Dict, objectives=("contrastive", "mlm", "motion")) -> Dict:
         device = self.logit_scale.device
@@ -129,8 +157,13 @@ class MTRModel(nn.Module):
             out["text_emb"] = self.encode_text(batch["caption"])
             out["logit_scale"] = self.logit_scale.clamp(max=math.log(100.0)).exp()
         if "motion" in objectives:
-            out["motion_pred"] = self.motion_head(cls)
-            out["motion_anchor"] = self.motion_head.anchor
+            out["motion_pred"] = self.predict_motion(cls, tokens, batch)
+            if self.motion_head_type == "kinematic":
+                out["motion_cv"] = batch["cv_anchor"]          # per-clip shrinkage anchor
+                out["kin_pred"] = self.kin_aux_head(cls)       # aux kinematics (#4)
+                out["kin_target"] = batch["kin"]
+            else:
+                out["motion_anchor"] = self.motion_head.anchor
         if "mlm" in objectives and mlm_mask is not None:
             out["masked_pred"] = self.masked_predictor(tokens)
             out["masked_target"] = frame_tokens.detach()
@@ -158,4 +191,6 @@ def build_model(cfg: Dict) -> MTRModel:
         input_mode=m.get("input_mode", "image"),
         frame_feat_dim=m.get("frame_feat_dim"),
         use_text=m.get("use_text", True),
+        motion_head=m.get("motion_head", "mlp"),
+        kin_dim=m.get("kin_dim", 3),
     )

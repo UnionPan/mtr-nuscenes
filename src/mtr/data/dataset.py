@@ -20,6 +20,46 @@ from .index import load_index
 from .transforms import corrupt_image, load_and_preprocess
 
 
+def _causal_kinematics(ego_poses: List, horizon: int, model: str = "cv"):
+    """Causal kinematic anchor + observed kinematics, in the anchor
+    (last-observed) ego frame — the same frame ``motion_target`` lives in.
+
+    Uses ONLY observed frames, so it is leak-free: the "cheap velocity/turn-rate
+    estimator" a real ego-vehicle already has from localization. ``model``:
+      * ``"cv"``   constant-velocity (straight-line) extrapolation of the last step;
+      * ``"ctrv"`` constant-turn-rate-and-velocity — extrapolates the *curve* the
+                   car has already begun (yaw-rate from the last observed step).
+                   Acceleration is deliberately omitted: estimated from 2 Hz
+                   keyframes it is too noisy and hurts (validated empirically).
+    Returns ``(anchor [H,2], kin [5] = [step_x, step_y, speed, yaw_rate, accel])``.
+    """
+    P = np.asarray(ego_poses, dtype=np.float64)          # [T, 3] = x, y, yaw(global)
+    ayaw = P[-1, 2]
+    ca, sa = np.cos(ayaw), np.sin(ayaw)
+    R = np.array([[ca, sa], [-sa, ca]])                  # global -> anchor-ego (yaw only)
+    q = (P[:, :2] - P[-1, :2]) @ R.T                     # observed traj in anchor frame
+    if P.shape[0] >= 2:
+        steps = q[1:] - q[:-1]                            # per-keyframe displacements
+        slen = np.linalg.norm(steps, axis=1)
+        last = steps[-1]; v0 = float(slen[-1])
+        w_last = float(np.arctan2(np.sin(ayaw - P[-2, 2]), np.cos(ayaw - P[-2, 2])))
+        a_mean = float(np.mean(np.diff(slen))) if len(slen) >= 2 else 0.0
+    else:
+        last = np.zeros(2); v0 = 0.0; w_last = 0.0; a_mean = 0.0
+
+    if model == "ctrv":
+        x = y = th = 0.0; pts = []
+        for h in range(1, horizon + 1):
+            th += w_last
+            x += v0 * np.cos(th); y += v0 * np.sin(th)
+            pts.append([x, y])
+        anchor = np.asarray(pts)
+    else:                                                # "cv"
+        anchor = np.outer(np.arange(1, horizon + 1), last)
+    kin = np.array([last[0], last[1], v0, w_last, a_mean], dtype=np.float32)
+    return anchor.astype(np.float32), kin
+
+
 class NuScenesClipDataset(Dataset):
     def __init__(
         self,
@@ -36,6 +76,7 @@ class NuScenesClipDataset(Dataset):
         camera_dropout: float = 0.0,         # prob. of dropping a camera view
         deterministic: bool = True,          # True: fixed per-clip (eval); False: per-epoch random
         seed: int = 0,
+        anchor_model: str = "cv",            # "cv" | "ctrv": kinematic motion anchor
     ):
         index = load_index(index_path)
         self.meta = index["meta"]
@@ -51,6 +92,7 @@ class NuScenesClipDataset(Dataset):
         self.camera_dropout = camera_dropout
         self.deterministic = deterministic
         self.base_seed = seed
+        self.anchor_model = anchor_model
         if mode == "feature" and feature_cache is None:
             raise ValueError("mode='feature' requires a feature_cache")
 
@@ -80,11 +122,15 @@ class NuScenesClipDataset(Dataset):
                     if rng.random() < self.camera_dropout:
                         cam_mask[t, v] = False
 
+        cv_anchor, kin = _causal_kinematics(clip["ego_poses"], len(clip["motion_target"]),
+                                            self.anchor_model)
         out: Dict = {
             "frame_mask": frame_mask,
             "cam_mask": cam_mask,
             "motion_target": torch.tensor(clip["motion_target"], dtype=torch.float32),
             "motion_valid": torch.tensor(clip["motion_valid"], dtype=torch.bool),
+            "cv_anchor": torch.from_numpy(cv_anchor),         # [H,2] causal CV prior
+            "kin": torch.from_numpy(kin),                     # [3] observed kinematics
             "caption": clip["caption"],
             "speed": torch.tensor(clip["speed"], dtype=torch.float32),
             "meta": {"scene": clip["scene"], "index": i},
@@ -117,6 +163,8 @@ def collate_clips(batch: List[Dict]) -> Dict:
         "cam_mask": torch.stack([b["cam_mask"] for b in batch]),
         "motion_target": torch.stack([b["motion_target"] for b in batch]),
         "motion_valid": torch.stack([b["motion_valid"] for b in batch]),
+        "cv_anchor": torch.stack([b["cv_anchor"] for b in batch]),
+        "kin": torch.stack([b["kin"] for b in batch]),
         "speed": torch.stack([b["speed"] for b in batch]),
         "caption": [b["caption"] for b in batch],
         "meta": [b["meta"] for b in batch],

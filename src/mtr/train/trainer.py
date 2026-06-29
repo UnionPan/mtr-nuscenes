@@ -41,6 +41,7 @@ def build_dataset(cfg: Dict, split: str, **overrides) -> NuScenesClipDataset:
     return NuScenesClipDataset(
         d["index_path"], split=split, image_size=d.get("image_size", 224),
         mode=mode, feature_cache=fc, dataroot=d.get("dataroot"),
+        anchor_model=d.get("anchor_model", "cv"),
         **overrides,
     )
 
@@ -85,7 +86,7 @@ class Trainer:
         # Initialize the motion head's residual anchor to the mean training
         # trajectory (so the head starts at the constant-mean baseline).
         valid = [c["motion_target"] for c in self.train_ds.clips if c["motion_valid"]]
-        if valid:
+        if valid and hasattr(self.core.motion_head, "set_anchor"):
             import numpy as _np
             mean_traj = torch.tensor(_np.mean(valid, axis=0), dtype=torch.float32)
             self.core.motion_head.set_anchor(mean_traj)
@@ -100,7 +101,10 @@ class Trainer:
         bb_mult = tcfg.get("backbone_lr_mult", 0.1)
         backbone_ids = set()
         if getattr(self.core, "frame_encoder", None) is not None:
-            backbone_ids = {id(p) for p in self.core.frame_encoder.parameters()}
+            backbone_ids |= {id(p) for p in self.core.frame_encoder.parameters()}
+        # A trainable (unfrozen) pretrained text encoder also gets the reduced LR.
+        if getattr(self.core, "use_text", False) and getattr(self.core, "text_encoder", None) is not None:
+            backbone_ids |= {id(p) for p in self.core.text_encoder.model.parameters()}
         head, backbone = [], []
         for p in self.model.parameters():
             if not p.requires_grad:

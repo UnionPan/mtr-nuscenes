@@ -10,8 +10,9 @@ runs_*.log
 # Keep the lightweight clip indices for reproducibility
 !data/index/
 data/index/*.tmp
-# ...but not the large (regenerable) trainval index
+# ...but not the large (regenerable) trainval indices
 data/index/trainval_front_T6_s2.json
+data/index/trainval_6cam_T6_s2.json
 
 # Python
 __pycache__/

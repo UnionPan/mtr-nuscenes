@@ -1,0 +1,24 @@
+# Improved 6-cam trainval run: relax the (Mini-tuned) motion shrinkage so motion
+# can actually learn at scale, unfreeze the text encoder at a reduced LR for
+# stronger video-text alignment, and train longer. Reuses the 6-cam feature cache.
+_base_: scale_trainval_6cam.yaml
+name: scale_6cam_v2
+output_dir: runs/scale_6cam_v2
+
+model:
+  freeze_text: false      # fine-tune DistilBERT (reduced LR via backbone_lr_mult)
+
+loss_weights:
+  contrastive: 1.0
+  mlm: 1.0
+  motion: 0.5
+  motion_reg: 0.05        # was 0.3 (Mini); relax so the motion residual can learn
+
+train:
+  epochs: 60
+  batch_size: 64
+  lr: 5.0e-4
+  backbone_lr_mult: 0.1   # DistilBERT trains at 5e-5
+  eval_every_epochs: 5
+  ckpt_every_epochs: 15
+  log_every: 50

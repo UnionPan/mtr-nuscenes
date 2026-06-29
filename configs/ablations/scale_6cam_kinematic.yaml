@@ -1,0 +1,23 @@
+# Forecasting upgrade: replace the pooled-CLS MLP motion head with the kinematic
+# head — (1) residual over a causal constant-velocity anchor, (2) fed observed
+# kinematics, (3) conditioned on the temporal token sequence, (4) auxiliary
+# kinematics loss. Runs in FAST feature mode on the existing 6-cam cache (no
+# backbone retraining, no cache rebuild — the CV anchor/kin come from ego-poses
+# in the index). Compare motion ADE/FDE to the frozen 6-cam (4.71) and the
+# adapted runs (front-adapt 3.22, 6cam-adapt 3.34).
+_base_: scale_6cam_v2.yaml
+name: scale_6cam_kinematic
+output_dir: runs/scale_6cam_kinematic
+
+model:
+  motion_head: kinematic
+
+loss_weights:
+  contrastive: 1.0
+  mlm: 1.0
+  motion: 0.5
+  motion_reg: 0.02        # light shrink of the residual toward the CV anchor
+  kin_aux: 0.1            # aux: predict observed kinematics from visual features
+
+train:
+  epochs: 40

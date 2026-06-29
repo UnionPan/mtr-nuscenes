@@ -25,11 +25,11 @@ def embed_clips(model, loader, device, precision: str = "fp16") -> Dict[str, np.
     for batch in loader:
         b = {k: (v.to(device) if torch.is_tensor(v) else v) for k, v in batch.items()}
         with torch.autocast(device_type="cuda", dtype=dt, enabled=(precision != "fp32")):
-            cls, _, _ = core.encode_video(b)
+            cls, tokens, _ = core.encode_video(b)
             if core.use_text:
                 txt = core.encode_text(b["caption"])
                 vemb = core.video_proj(cls)
-            mp = core.motion_head(cls)
+            mp = core.predict_motion(cls, tokens, b)
         CLS.append(cls.float().cpu().numpy())
         MP.append(mp.float().cpu().numpy())
         MT.append(b["motion_target"].cpu().numpy())

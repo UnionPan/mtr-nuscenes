@@ -1,0 +1,34 @@
+# Combine both levers proven to help at scale: 6 surround cameras + an adapted
+# (unfrozen) DINOv2 backbone, plus the v2 wins (trainable text, relaxed motion
+# shrinkage). Expected new best across all metrics. Image mode (backbone needs
+# gradients) => the expensive run; epochs kept modest since front-cam adapt
+# converged by ~ep7.
+_base_: scale_trainval_6cam.yaml
+name: scale_6cam_adapt
+output_dir: runs/scale_6cam_adapt
+
+data:
+  input_mode: image
+  num_workers: 8
+
+model:
+  input_mode: image
+  freeze_encoder: false
+  grad_checkpointing: true
+  freeze_text: false
+  max_views: 6
+
+loss_weights:
+  contrastive: 1.0
+  mlm: 1.0
+  motion: 0.5
+  motion_reg: 0.05
+
+train:
+  epochs: 5
+  batch_size: 12
+  lr: 3.0e-4
+  backbone_lr_mult: 0.05
+  eval_every_epochs: 2
+  ckpt_every_epochs: 5
+  log_every: 50

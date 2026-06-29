@@ -1,0 +1,25 @@
+# Tier-1 forecasting enrichment: upgrade the kinematic anchor from constant-
+# velocity to constant-turn-rate-and-velocity (CTRV), extrapolating the curve the
+# ego has already begun, plus a richer 5-d observed-kinematics vector. Stronger
+# shrinkage than scale_6cam_kinematic (motion_reg 0.02 -> 0.3) since the residual
+# was shown to overfit above the prior. Fast feature mode on the 6-cam cache.
+_base_: scale_6cam_kinematic.yaml
+name: scale_6cam_ctrv
+output_dir: runs/scale_6cam_ctrv
+
+data:
+  anchor_model: ctrv
+
+model:
+  motion_head: kinematic
+  kin_dim: 5
+
+loss_weights:
+  contrastive: 1.0
+  mlm: 1.0
+  motion: 0.5
+  motion_reg: 0.3         # hold the residual near the (now stronger) CTRV anchor
+  kin_aux: 0.1
+
+train:
+  epochs: 40

@@ -43,9 +43,12 @@ def embed_via_encoder(core, frame_encoder, loader, device, precision) -> Dict:
              "cam_mask": batch["cam_mask"].to(device),
              "frame_mask": batch["frame_mask"].to(device),
              "caption": batch["caption"]}
+        if "cv_anchor" in batch:
+            b["cv_anchor"] = batch["cv_anchor"].to(device)
+            b["kin"] = batch["kin"].to(device)
         with torch.autocast("cuda", dtype=dt, enabled=(precision != "fp32")):
-            cls, _, _ = core.encode_video(b)
-            mp = core.motion_head(cls)
+            cls, tokens, _ = core.encode_video(b)
+            mp = core.predict_motion(cls, tokens, b)
             if core.use_text:
                 vemb, txt = core.video_proj(cls), core.encode_text(b["caption"])
         CLS.append(cls.float().cpu().numpy()); MP.append(mp.float().cpu().numpy())
@@ -77,7 +80,8 @@ def run_retrieval_probe_motion(core, cfg, device) -> Dict:
 
     def loader(split):
         ds = NuScenesClipDataset(d["index_path"], split=split, image_size=d.get("image_size", 224),
-                                 mode=mode, feature_cache=fc, dataroot=d.get("dataroot"))
+                                 mode=mode, feature_cache=fc, dataroot=d.get("dataroot"),
+                                 anchor_model=d.get("anchor_model", "cv"))
         return DataLoader(ds, batch_size=bs, shuffle=False, collate_fn=collate_clips,
                           num_workers=d.get("num_workers", 4))
 
@@ -105,7 +109,8 @@ def run_robustness(core, cfg, device) -> Dict:
 
     def img_loader(**kw):
         ds = NuScenesClipDataset(d["index_path"], split="val", image_size=d.get("image_size", 224),
-                                 mode="image", dataroot=d.get("dataroot"), **kw)
+                                 mode="image", dataroot=d.get("dataroot"),
+                                 anchor_model=d.get("anchor_model", "cv"), **kw)
         return DataLoader(ds, batch_size=bs, shuffle=False, collate_fn=collate_clips,
                           num_workers=d.get("num_workers", 4))
 
@@ -164,16 +169,16 @@ def run_efficiency(core, cfg, device, n_batches: int = 8) -> Dict:
         feats = _features_from_images(frame_encoder, imgs, dt, prec)
         b = {"features": feats, "cam_mask": cam_mask, "frame_mask": frame_mask, "caption": caps}
         with torch.autocast("cuda", dtype=dt, enabled=(prec != "fp32")):
-            cls, _, _ = core.encode_video(b)
-            core.motion_head(cls)
+            cls, tokens, _ = core.encode_video(b)
+            core.predict_motion(cls, tokens, b)
 
     @torch.no_grad()
     def feature_pipeline():
         feats = torch.randn(bs, T, V, Df, device=device)
         b = {"features": feats, "cam_mask": cam_mask, "frame_mask": frame_mask, "caption": caps}
         with torch.autocast("cuda", dtype=dt, enabled=(prec != "fp32")):
-            cls, _, _ = core.encode_video(b)
-            core.motion_head(cls)
+            cls, tokens, _ = core.encode_video(b)
+            core.predict_motion(cls, tokens, b)
 
     return {"full_image_to_temporal": bench(full_pipeline),
             "cached_feature_temporal": bench(feature_pipeline),

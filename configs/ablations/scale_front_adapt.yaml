@@ -1,0 +1,35 @@
+# Test the frozen-encoder hypothesis at scale: adapt (unfreeze) the DINOv2
+# backbone on front-camera trainval and compare to the frozen front baseline
+# (scale_trainval, ADE 4.64). Image mode (backbone needs gradients), gradient
+# checkpointing, reduced backbone LR. Also keeps the v2 wins (trainable text,
+# relaxed motion shrinkage). If motion ADE drops, the frozen encoder was the
+# ceiling.
+_base_: scale_trainval.yaml
+name: scale_front_adapt
+output_dir: runs/scale_front_adapt
+
+data:
+  input_mode: image
+  num_workers: 6
+
+model:
+  input_mode: image
+  freeze_encoder: false
+  grad_checkpointing: true
+  freeze_text: false
+  max_views: 1
+
+loss_weights:
+  contrastive: 1.0
+  mlm: 1.0
+  motion: 0.5
+  motion_reg: 0.05
+
+train:
+  epochs: 12
+  batch_size: 16
+  lr: 3.0e-4
+  backbone_lr_mult: 0.05
+  eval_every_epochs: 4
+  ckpt_every_epochs: 12
+  log_every: 50

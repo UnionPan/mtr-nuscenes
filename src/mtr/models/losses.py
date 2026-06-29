@@ -61,13 +61,27 @@ def compute_losses(out: Dict, batch: Dict, weights: Dict[str, float]) -> Dict[st
         logs["ade"] = md["ade"]
         logs["fde"] = md["fde"]
         total = total + weights.get("motion", 1.0) * md["motion"]
-        # Shrinkage of the residual toward the mean-trajectory anchor (combats
-        # memorization in the small-scene regime; pulls predictions to the prior).
-        if "motion_anchor" in out and weights.get("motion_reg", 0.0) > 0:
-            resid = out["motion_pred"] - out["motion_anchor"].unsqueeze(0)
-            reg = resid.pow(2).mean()
-            logs["motion_reg"] = reg.detach()
-            total = total + weights["motion_reg"] * reg
+        # Shrinkage of the residual toward the anchor (combats memorization;
+        # pulls predictions to the prior). MLP head anchors on the mean
+        # trajectory [H,2]; the kinematic head anchors on the per-clip CV
+        # trajectory [B,H,2].
+        if weights.get("motion_reg", 0.0) > 0:
+            if "motion_cv" in out:
+                resid = out["motion_pred"] - out["motion_cv"]
+            elif "motion_anchor" in out:
+                resid = out["motion_pred"] - out["motion_anchor"].unsqueeze(0)
+            else:
+                resid = None
+            if resid is not None:
+                reg = resid.pow(2).mean()
+                logs["motion_reg"] = reg.detach()
+                total = total + weights["motion_reg"] * reg
+    # Auxiliary kinematics regression (#4): force the visual representation to
+    # encode observed ego-motion (speed/heading), independent of the fed-in kin.
+    if "kin_pred" in out and weights.get("kin_aux", 0.0) > 0:
+        l = F.mse_loss(out["kin_pred"], out["kin_target"])
+        logs["kin_aux"] = l.detach()
+        total = total + weights["kin_aux"] * l
 
     logs["total"] = total.detach()
     return {"total": total, "logs": logs}

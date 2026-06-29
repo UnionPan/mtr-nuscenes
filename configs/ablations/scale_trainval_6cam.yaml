@@ -1,0 +1,30 @@
+# Flagship scale-up: full nuScenes v1.0-trainval, ALL 6 surround cameras.
+# Combines scale (850 scenes) with multi-camera (strong retrieval on Mini).
+# Data from the public CloudFront CDN (no login) via download_trainval_6cam.sh.
+_base_: ../base.yaml
+name: scale_trainval_6cam
+output_dir: runs/scale_trainval_6cam
+
+data:
+  dataroot: data/nuscenes_full
+  version: v1.0-trainval
+  index_path: data/index/trainval_6cam_T6_s2.json
+  cameras: 6
+  feature_cache: data/cache/dinov2_vitb14_trainval_6cam
+  num_workers: 8
+  train_augment:
+    frame_dropout: 0.1
+    camera_dropout: 0.1   # 6 cameras -> dropout is meaningful again
+    feature_noise: 0.05
+
+model:
+  max_views: 6
+  frame_feat_dim: 768
+
+train:
+  epochs: 30
+  batch_size: 48
+  lr: 5.0e-4
+  eval_every_epochs: 5
+  ckpt_every_epochs: 10
+  log_every: 50
